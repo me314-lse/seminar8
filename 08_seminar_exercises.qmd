@@ -1,0 +1,685 @@
+---
+title: "Seminar 8: Core Machine Learning 2"
+subtitle: "LSE ME314: Introduction to Data Science and Machine Learning"
+date-modified: "17 July 2025" 
+toc: true
+format:
+  html:
+    math: mathjax 
+execute:
+  echo: true
+  eval: false
+---
+
+# Plan for Today
+
+The plan for today is to extend the 'simple' supervised ML pipeline from yesterday's seminar and demonstrate how additional techniques help create 'robust' classifiers. In this seminar, we focus on the benefits of splitting available data into training, validation and test sets, how to perform k-fold cross-validation, hyperparameter tuning, and the bias-variance tradeoff.  
+
+Let's load the required R packages! The below function should check if the packages are installed, install them if not, and then load them.
+
+```{r}
+# Install missing packages
+packages <- c(
+  "tidyverse", "caret", "randomForest", "ranger", "stats", "glmnet", 
+  "e1071", "pROC", "ggplot2", "plotROC", "reticulate", "Metrics", 
+  "titanic", "rpart", "mlbench", "patchwork", "rpart.plot", "MLmetrics"
+)
+
+installed <- packages %in% rownames(installed.packages())
+
+if (any(!installed)) {
+  install.packages(packages[!installed])
+}
+```
+
+
+```{r}
+# Load all packages
+lapply(packages, library, character.only = TRUE)
+```
+
+And set our reticulate environment and working directory.
+
+```{r}
+setwd("PATH_TO_GITHUB")
+library(reticulate)
+use_python("PATH_TO_PYTHON", required = TRUE)
+```
+
+Let's also load the required Python packages! The below function should try to import the necessary packages and if, if they're not installed, install them. 
+
+```{python}
+import sys
+import subprocess
+import importlib
+
+print(f"Python executable in use: {sys.executable}\n")
+
+# List of pip package names
+pip_packages = [
+    "numpy", "pandas", "matplotlib", "seaborn",
+    "scikit-learn", "pyLDAvis"
+]
+
+# Attempt to install each package
+for package in pip_packages:
+    try:
+        subprocess.check_call([sys.executable, "-m", "pip", "install", package])
+        print(f"Installed: {package}")
+    except Exception as e:
+        print(f"Failed to install {package}: {e}")
+```
+
+
+```{python}
+import numpy as np
+import pandas as pd
+import matplotlib
+import matplotlib.pyplot as plt
+import seaborn as sns
+import sklearn
+import sklearn.metrics
+import pyLDAvis
+print("Ending installation of Python packages...", flush=True)
+
+```
+
+
+## Part 1: Train/Validation/Test Splits
+
+It is important to understand the concepts of overfitting and underfitting, which describe common challenges in model training. Overfitting occurs when a model learns not only the underlying patterns but also the noise in the training data, resulting in excellent performance on training data but poor generalization to new, unseen data. Underfitting happens when a model is too simple to capture the true relationships in the data, leading to poor performance both on training and test sets. 
+
+It is best practice to split our available data into a training set, and an 'out-of-sample' test set. Splitting data into train and test sets is essential in machine learning to evaluate how well a model generalizes to new, unseen data. This new data that is used to evaluate the model is also sometimes called 'out-of-sample' (OOS) data. Without this step, we increase the likelihood that our model __overfits__ to our training data, and fails to predict well when faced with new data. Yesterday, we performed in-sample model evaluation. Today, we will get our in-sample evaluation metrics via cross-validation, and our out-of-sample evaluation by evaluating on unseen data.
+
+* __Train set:__ Used to fit (train) the model, allowing it to learn patterns from the data.
+
+* __Test set:__ Set aside and only used after training to evaluate the model’s performance on data it hasn’t seen before.
+
+![Train and Test Error](Figs/overunderfit.png "Source: Ajitesh Kumar")
+
+We also break our training data up further into training and validation sets. The training set fits the model, the validation set is used to provide more robust in-sample performance estimates and for tasks like hyperparameter tuning, and the test set is used for a final, unbiased performance check. 
+
+`Caret` is a popular R package used for training, evaluating, and deploying ML models in R. Other libraries such as `Tidymodels`, which is built with the `tidyverse` philosophy, also do this. Today, we will use Caret. 
+
+
+#### Exercise 1
+
+In this exercise, we are going to demonstrate how to make train/test splits and illustrate how evaluation varies across train/validation/test sets using our data from yesterday. 
+
+Load the `math_student.csv` file from and remove the `G2` variable as before. The file is in this seminar's github repo in the 'Data' folder.
+
+```{r}
+library(caret)
+library(tidyverse)
+?caret::createDataPartition()
+
+math_student <- read.csv("/Users/christycoulson/Documents/Jobs/Work/Academia/Teaching/ME314/24-25/Seminars/Seminar 8/Data/math_student.csv", sep = ",", header = TRUE) %>%
+select(__)
+
+math_student <- math_student %>%
+  mutate(across(where(is.character), as.factor))
+```
+
+Create a __vector__ named `math_y` containing our response variable, `G3`, from math_student. Next, remove our response variable from the `math_student` data frame and rename it `math_x`. Print the first five rows of `math_x` and the first 5 elements of `math_y`. 
+
+```{r}
+# Enter code here
+math_y <- math_student$__ %>% as.__()
+
+math_x <- math_student %>% select(-__)
+
+head(math_y, 5)
+
+head(math_x, 5)
+```
+
+Keep `set.seed(123)` to ensure replicability. Now, use the `createDataPartition()` function with `p` = 0.25 to create an R vector called `train_idx` which we will use to randomly split our data into a training set containing 75% of the data, and the rest in our test set. `train_idx` is a vector of integers that relate to the index of your `math_student` data. You may need to apply `as.vector()` after `createDataPartition()` to transform it to a vector. Use the argument `list = FALSE` so `train_idx` remains a vector. 
+
+```{r}
+set.seed(123)
+# Enter code here
+# Create indices for the training set (note: p refers to the *training* proportion)
+train_idx <- createDataPartition(math_y, p = __, list = __)
+```
+
+Next, use indexing with `train_idx` to create two dataframes - `train_x` and `test_x`, and two vectors called `train_y` and `test_y`. 
+
+*Hint*: `train_x <- math_x[train_idx, ] %>% as.data.frame()`
+*Hint*: `train_y <- math_y[train_idx] %>% as.numeric() %>% as.vector()`
+
+Finally, create `train_data_cont` and `test_data_cont`. The training data should contain both the response and features for the training data. The test data should contain all the responses and features for the test data. 
+
+Examine the structure of the 6 objects you have created with either `dim()` or `length()`. Do they match your expectations?
+
+```{r}
+# Create training and test sets
+train_x <- math_x[train_idx, ] %>% as.data.frame()
+train_y <- math_y[train_idx] %>% as.numeric() %>% as.vector()
+
+test_x <- 
+test_y <- 
+
+train_data_cont <- train_x %>%
+  mutate(G3 = __)
+
+test_data_cont <- test_x %>%
+  mutate(G3 = __)
+
+dim(train_x)
+dim(test_x)
+length(train_y)
+length(test_y)
+
+dim(train_data_cont)
+dim(test_data_cont)
+```
+
+**Questions**: 
+
+- Do the structure of these objects match your expectations? 
+
+- How many more columns does train_data_cont have than train_x?
+
+
+#### Exercise 2
+
+Now we're going to fit a multiple linear regression model and compare three modes of model evaluation - (1) train (in-sample) performance, (2) validation performance, and (3) test (out-of-sample) performance. In this exercise, we're using k-fold cross-validation to create this validation estimate. That means we take our training set and split it further into multiple folds, training on some parts and evaluating performance on the held-out validation fold. We repeat this process so each fold acts as a validation fold to get a more stable estimate of model performance on new data. We'll explore cross-validation and the difference between these sets in more depth in Part 2, when we focus on model selection and tuning strategies in more detail.
+
+```{r}
+library(Metrics)
+
+# Fit on train, predict on train
+lm_train <- lm(__ ~ ., data = train_x)
+train_rmse <- rmse(__, predict(lm_train, __))
+
+set.seed(125)
+
+# 10-fold CV on train
+cv_mod <- train(x = __, y = __,
+                method = "lm",
+                trControl = trainControl(method = "cv", number = 10))
+                
+val_rmse   <- cv_mod$results$RMSE
+
+# Predict on test
+test_rmse  <- rmse(test_y, predict(lm_train, test_x))
+
+tibble(Phase = c("Train", "10-fold CV", "Test"),
+       RMSE  = c(train_rmse, val_rmse, test_rmse))
+
+```
+
+**Questions**:
+
+- Our Train RMSE quantifies the fit on the data we trained our model with. Will this yield an optimistic or pessimistic RMSE?
+
+- Our Validation RMSE (computed with 10-fold CV) provides an internal check on generalisation *without* touching the test set. Will this estimate tend to be optimistic or pessimistic compared to our test RMSE?
+
+- Our Test RMSE is used to evaluate our final models. Why does this specifically target generalisability compared to the Train and Validation RMSEs?
+
+## Part 2: Cross-validation
+
+Cross-validation is a resampling method where the training data is split into several folds (e.g. 5 or 10). The model is trained on all but one fold and validated on the held-out fold, repeating until each fold has been used for validation. The average performance across folds gives a more stable estimate of how the model will generalize to unseen data.
+
+It's commonly used to reduce variance from a single train/test split, guard against over or underfitting, and compare models or hyperparameter settings. Typical applications include model selection, tuning parameters, and performance estimation when data is limited.
+
+After cross-validation and tuning, we still assess final model performance on the test set to measure true out-of-sample accuracy.
+
+![5-fold cross-validation](Figs/kfoldcrossval.png "Source: Towards Data Science")
+
+
+#### Exercise 3
+
+To ensure that we understand cross-validation for hyperparameter tuning, we are going to manually code a cross-validation pipeline to optimize two key random forest hyperparameters: **mtry** and **nodesize**. This exercise will help you understand the mechanics behind automated hyperparameter tuning functions and appreciate the computational cost involved in exhaustive grid search approaches.
+
+We have provided a partially complete function titled `run_rf_cv` that performs 10-fold cross-validation with grid search over different combinations of these hyperparameters. The hyperparameter values are provided in `mtry_values` and `nodesize_values.` Your task is to complete the missing sections of the function, maintaining the structure of the nested for-loop and examining how accuracy varies across different parameter combinations.
+
+For this exercise, we'll be working with the famous **Titanic dataset** - one of the most popular datasets in machine learning education. We'll be predicting passenger survival (the `Survived` variable) based on features like passenger class, sex, age, number of siblings/spouses aboard, number of parents/children aboard, fare, and port of embarkation. This binary classification problem provides an excellent context for understanding how hyperparameter tuning can improve model performance. 
+
+**Questions:**
+
+- What does the hyperparameter 'mtry' mean?
+
+- What does the hyperparameter 'nodesize' mean?
+
+```{r}
+library(randomForest)
+library(titanic)
+
+titanic <- titanic_train
+# Select a few features and drop rows with missing Age or Embarked
+titanic <- titanic[, c("Survived","Pclass","Sex","Age","SibSp","Parch","Fare","Embarked")]
+titanic <- na.omit(__)
+
+# Convert to factors where appropriate
+titanic$Survived <- factor(titanic$Survived, levels = c(0,1), labels = c("no", "yes"))
+titanic$Pclass   <- factor(titanic$Pclass)
+titanic$Sex      <- factor(titanic$Sex)
+titanic$Embarked <- factor(titanic$Embarked)
+
+# Build X (predictors) and y (target)
+y <- titanic$__
+X <- titanic[, setdiff(names(titanic), "__")]
+```
+
+An alternative way to perform train/test splitting is by using the `sample()` function. 
+
+```{r}
+# Split into train/test
+set.seed(123)
+train_idx <- sample(nrow(X), size = floor(0.8 * nrow(X)))
+X_test <- X[-__, ]
+y_test <- y[-__]
+X_train <- X[__, ]
+y_train <- y[__]
+```
+
+Now, let's complete our manual cross-validation function for the tuning of `mtry` and `nodesize.` 
+
+```{r}
+library(randomForest)
+
+# Manual 10-fold CV function with grid search over mtry and nodesize
+run_rf_cv <- function(X_train, y_train, mtry_values, nodesize_values, k = 10, ntree = 250) {
+  set.seed(123)
+  n <- nrow(X_train)
+  folds <- sample(rep(1:k, length.out = n))
+
+  param_grid <- expand.grid(mtry = mtry_values, nodesize = nodesize_values)
+  results <- matrix(NA, nrow = nrow(param_grid), ncol = k)
+
+  for (i in 1:nrow(param_grid)) {
+    mtry_val <- param_grid$__[i]
+    nodesize_val <- param_grid$__[i]
+
+    for (fold in 1:k) {
+      val_idx <- which(folds == fold)
+      train_idx <- setdiff(1:n, val_idx)
+
+      X_fold_train <- X_train[__, ]
+      y_fold_train <- y_train[__]
+      X_fold_val   <- X_train[__, ]
+      y_fold_val   <- y_train[__]
+
+      model <- randomForest(
+        x = X_fold_train, y = y_fold_train,
+        mtry = __,
+        nodesize = __,
+        ntree = ntree
+      )
+
+      preds <- predict(model, X_fold_val)
+      acc <- mean(preds == y_fold_val)
+      results[i, fold] <- acc
+    }
+  }
+
+  avg_acc <- rowMeans(results)
+  best_idx <- which.max(avg_acc)
+  best_params <- param_grid[best_idx, ]
+
+  list(
+    cv_results = results,
+    avg_accuracy = avg_acc,
+    param_grid = param_grid,
+    best_params = best_params
+  )
+}
+```
+
+And execute the function with our relevant X, Y, mtry, and nodesize values. 
+
+```{r}
+# Define values to test
+mtry_values <- c(2, 3, 4, 5, 7)  # Max = number of predictors
+nodesize_values <- c(1, 3, 5, 10, 15)
+
+# Run CV on training data
+cv_result <- run_rf_cv(__, __, __, __)
+
+# Show grid search results
+print(cbind(cv_result$param_grid, Accuracy = round(cv_result$avg_accuracy, 3)))
+print(paste("Best mtry:", cv_result$best_params$mtry))
+print(paste("Best nodesize:", cv_result$best_params$nodesize))
+
+cv_df <- cbind(cv_result$param_grid, Accuracy = cv_result$avg_accuracy)
+
+# Plot Accuracy by mtry
+ggplot(cv_df, aes(x = factor(__), y = Accuracy)) +
+  geom_boxplot(aes(group = mtry)) +
+  geom_point(position = position_jitter(width = 0.1), size = 2) +
+  labs(title = "CV Accuracy by mtry", x = "mtry", y = "Accuracy") +
+  theme_minimal()
+
+# Plot Accuracy by nodesize
+ggplot(cv_df, aes(x = factor(__), y = Accuracy)) +
+  geom_boxplot(aes(group = nodesize)) +
+  geom_point(position = position_jitter(width = 0.1), size = 2) +
+  labs(title = "CV Accuracy by nodesize", x = "nodesize", y = "Accuracy") +
+  theme_minimal()
+```
+
+**Questions:**
+
+- What combination of hyperparameter values delivers the highest accuracy score? What is that accuracy score? 
+
+- How do you interpret the two graphs in this chunk? Is there a more informative and clear way of communicating this information?
+
+```{r}
+ggplot(cv_df, aes(x = factor(__), y = factor(__), fill = Accuracy)) +
+  geom_tile(color = "white") +
+  scale_fill_gradient(low = "lightblue", high = "darkblue") +
+  labs(title = "CV Accuracy by mtry and nodesize", x = "mtry", y = "nodesize") +
+  theme_minimal()
+```
+
+To finish this off, let's fit our final model with our optimised hyperparameter values to our entire training data and evaluate OOS performance. We will train our final model with 500 trees. 
+
+```{r}
+# Train model with selected hyperparameters
+final_model <- randomForest(
+  x = __, y = __,
+  mtry = cv_result$best_params$__,
+  nodesize = cv_result$best_params$__,
+  ntree = 500,
+  importance = TRUE
+)
+
+# Predict on test set
+test_preds <- predict(__, __)
+test_accuracy <- mean(test_preds == __)
+cat("Test set accuracy:", round(test_accuracy, 3), "\n")
+```
+
+
+#### Exercise 4
+
+To round out the exercises on cross-validation, we're going to introduce an R package, `caret`, to do this simply. 
+
+Let's run through a simple example of 10-fold hyperparameter tuning in R. We will be using `Sonar` dataset to predict whether objects are metal or rock-based by analysing the signals derived by bouncing sonar off them. We are going to perform a 'grid search' across 150 pre-specified hyperparameter values.
+
+- First, we use the `createDataPartition()` function to split our data into train and test sets
+
+- Next, we use the `trainControl()` function to specifiy our CV setup. Use the help function to explore the required arguments for this function. 
+
+- After, we use the `train()` function and specify additional details to perform cross-validation. 
+
+For this exercise, we'll be training a CART model using ROC-AUC as our evaluation metric. CART stands for 'Classification and regression tree,' and is a tree-based method that is regularised via pruning. The level of pruning (regularisation) is controlled with the `cp` hyperparameter. 
+
+Notice that the ROC-AUC metric is 'built into' the training pipeline, meaning that model selection will be performed based on this. Please fill in the blanks in the below code chunk, train our model with CV, and examine how our ROC-AUC varies by combinations of these values via `ggplot`. 
+
+Finally, we are going to select our optimal hyperparameter values, train our model on the *full* training data, predict, and evaluate OOS. 
+
+```{r}
+library(caret)
+library(mlbench)
+library(rpart)
+library(rpart.plot)
+library(MLmetrics)
+library(patchwork)
+
+# Load Sonar data
+data(Sonar)
+df <- Sonar
+df$Class <- factor(df$Class, levels = c("M", "R"))  # "R" is the positive class
+
+str(__)
+
+# Train/Test split (75/25 stratified)
+set.seed(123)
+train_idx <- createDataPartition(df$Class, p = 0.75, list = FALSE)
+train_df  <- df[__, ]
+test_df   <- df[-__, ]
+
+str(test_df)
+
+# CV control with random search
+set.seed(123)
+ctrl_grid <- trainControl(
+  method           = "cv",
+  number           = 10,
+  search           = "grid",       
+  classProbs       = TRUE,
+  summaryFunction  = twoClassSummary,
+  verboseIter      = FALSE
+)
+
+cp_grid <- data.frame(cp = seq(0.001, 0.3, length.out = 150))
+
+# Train with random search over cp
+set.seed(123)
+
+?train()
+cart_rand <- train(
+  insert_formula,
+  data       = __,
+  method     = "rpart",
+  metric     = "ROC",
+  trControl  = ctrl_grid,
+  tuneGrid = cp_grid
+)
+
+print(cart_rand)
+
+# Extract CV results and plot
+res <- cart_rand$results
+
+print(res)
+
+# Best CV cp and ROC‑AUC
+best_cp     <- cart_rand$bestTune$__
+best_cv_roc <- res$ROC[which.min(abs(res$cp - best_cp))]
+cat("Best CV cp:", best_cp, "\n")
+cat("Best CV ROC‑AUC:", round(best_cv_roc, 3), "\n")
+```
+
+Now, use ggplot2 to visualise different values of `cp` against their associated cross-validation ROC-AUC. 
+
+```{r}
+ggplot(res, aes(x = cp, y = ROC)) +
+  geom_point(alpha = 0.6) +
+  geom_line() +
+  labs(
+    title = "CART Model Tuning: cp vs CV ROC-AUC",
+    x = "Complexity Parameter (cp)",
+    y = "CV ROC-AUC"
+  ) +
+  theme_minimal()
+```
+
+Let's take our optimal `cp` value and train our final model on the entire training set. 
+
+```{r}
+# Retrain final model on full training set
+set.seed(123)
+final_cart <- train(
+  formula = enter_formula,
+  data       = __,
+  method     = "rpart",
+  metric     = "ROC",
+  trControl  = trainControl(
+                  method          = "none",
+                  classProbs      = TRUE,
+                  summaryFunction = twoClassSummary
+                ),
+  tuneGrid   = data.frame(cp = best_cp)
+)
+
+print(final_cart)
+rpart.plot(final_cart$finalModel)
+```
+
+And finally, let's evaluate the out-of-sample performance of our final model.
+
+```{r}
+# Convert test labels to numeric (1 for positive class "R", 0 for "M")
+y_test_numeric <- ifelse(test_df$Class == "R", 1, 0)
+
+# Predict probabilities for the positive class "R"
+probs_oos <- predict(__, __, type = "prob")[, "R"]
+
+
+# Compute AUC using MLmetrics
+auc_oos <- AUC(y_pred = probs_oos, y_true = y_test_numeric)
+
+cat("OOS Test-set AUC (MLmetrics::AUC):", round(auc_oos, 3), "\n")
+```
+
+**Questions:**
+
+- How many observations does our original dataset have?
+
+- How many features are in our dataset?
+
+- How does our optimal validation ROC-AUC differ from our test ROC-AUC value? Does our validation metric under or over estimate our ROC-AUC score? Why?
+
+- What was the final hyperparameter value used to train your final model?
+
+
+## Part 3: Regularisation
+
+Regularisation methods, like LASSO (Regularised regression w/ L1 penalty), introduce a constraint on the model complexity by penalising large coefficients. This helps to reduce overfitting by shrinking some coefficients towards zero, effectively performing variable selection and controlling model flexibility. The regularisation strength is controlled by a hyperparameter called `lambda`: smaller values of `lambda` allow more complex models (risking overfitting), while larger values force simpler models (risking underfitting).
+
+![Over and Underfitting](Figs/decision_boundary_overunderfit.png "Source: Python in Plain English")
+
+
+#### Exercise 5
+
+By varying `lambda`, we can observe the bias-variance tradeoff, where the model balances fitting the data well while maintaining the ability to generalize. Here, we will not be using cross-validation, and will simply be comparing training and test error for each value of `lambda`. This is not best practice, but is useful in demonstrating the bias-variance tradeoff. In addition, by comparing the values of `lambda` that minimise both training and test error, we are also made aware of the problematic implications of performing model selection based off training error, rather than validation error. 
+
+```{r}
+# Load cleaned Titanic dataset
+df <- titanic::titanic_train
+
+# Preprocess: select variables, convert factors, handle missing Age
+df <- __ %>%
+  select(__, Pclass, Sex, Age, SibSp, Parch, Fare, Embarked) %>%
+  mutate(
+    Survived = factor(Survived, levels = c(0, 1), labels = c("No", "Yes")),
+    Sex = as.numeric(factor(Sex, levels = c("male", "female"))),
+    Embarked = as.numeric(factor(Embarked)),
+    Age = ifelse(is.na(Age), median(Age, na.rm = TRUE), Age)
+  ) %>%
+  na.omit()
+
+# Train/test split
+set.seed(123)
+train_idx <- createDataPartition(df$__, p = 0.75, list = FALSE)
+train_df <- df[__, ]
+test_df  <- df[-__, ]
+
+# Prepare data matrices
+x_train <- as.matrix(select(train_df, -Survived))
+x_test  <- as.matrix(select(test_df, -Survived))
+
+# Binary response variables (0/1)
+y_train_factor <- train_df$__
+y_test_factor  <- test_df$__
+y_train <- as.numeric(y_train_factor) == 2  
+y_test  <- as.numeric(y_test_factor) == 2
+
+```
+
+Now, fill in the remaining blanks in this for-loop that estimates both in and out of sample for each specified value of `lambda.`
+
+```{r}
+# Lambda sequence
+lambda_seq <- 10^seq(-5, 2, length.out = 100)  # From 1e-5 to 100
+
+# Store errors
+train_errors <- numeric(length(__))
+test_errors  <- numeric(length(__))
+
+# Loop over lambdas
+for (i in seq_along(lambda_seq)) {
+  lambda <- __[i]
+  
+  # Fit LASSO model
+  fit <- glmnet(__, __, family = "binomial", alpha = __, lambda = lambda)
+  
+  # Predict on training
+  train_probs <- predict(fit, x_train, type = "response")[,1]
+  train_auc <- tryCatch(
+    AUC(__, y_train),
+    error = function(e) NA
+  )
+  train_errors[i] <- 1 - train_auc
+  
+  # Predict on test
+  test_probs <- predict(fit, x_test, type = "response")[,1]
+  test_auc <- tryCatch(
+    AUC(__, y_test),
+    error = function(e) NA
+  )
+  test_errors[i] <- 1 - test_auc
+}
+
+# Build tibble for plotting
+error_df <- tibble(
+  lambda = lambda_seq,
+  log_lambda = log10(lambda_seq),
+  train_error = train_errors,
+  test_error = test_errors
+)
+
+error_df %>%
+arrange(test_error)
+
+```
+
+Now, let's visualise how both the train and test error varies as we change `lambda`.
+
+```{r}
+# Plot bias-variance tradeoff
+ggplot(error_df, aes(x = log_lambda)) +
+  geom_line(aes(y = train_error, color = "Train AUC Error")) +
+  geom_line(aes(y = test_error, color = "Test AUC Error")) +
+  labs(
+    title = "LASSO Bias-Variance Tradeoff",
+    x = expression(log[10](lambda)),
+    y = "1 - AUC (Error)",
+    color = NULL  # removes the legend title
+  ) +
+  theme_minimal() +
+  scale_color_manual(values = c("Train AUC Error" = "blue", "Test AUC Error" = "red")) +
+  # Min test error line and label
+  geom_vline(xintercept = log10(lambda_seq[which.min(test_errors)]), 
+             linetype = "dashed", color = "darkred") +
+  annotate("text", 
+           x = log10(lambda_seq[which.min(test_errors)]), 
+           y = min(test_errors, na.rm = TRUE), 
+           label = "Min test error", 
+           vjust = -1.2, hjust = 1.1, size = 3) +
+  
+  # Min train error line and label
+  geom_vline(xintercept = log10(lambda_seq[which.min(train_errors)]), 
+             linetype = "dashed", color = "darkblue") +
+  annotate("text", 
+           x = log10(lambda_seq[which.min(train_errors)]), 
+           y = min(train_errors, na.rm = TRUE), 
+           label = "Min train error", 
+           vjust = 1.5, hjust = -0.1, size = 3, color = "darkblue")
+
+```
+
+**Questions**:
+
+- How does the above graph illustrate the bias-variance tradeoff? 
+
+- Why is there a difference between training error and test error?
+
+- How might we improve this pipeline to be more 'robust?'
+
+# By the end of this seminar, you should be able to:
+
+- Calculate the most commonly used evaluation metrics,
+
+- Identify the most suitable evaluation metric based on data structure and task, 
+
+- Discuss the benefits of using cross-validation to build robust ML models,
+
+- Use cross-validation to estimate validation performance and for hyperparameter tuning,
+
+- Discuss how the bias-variance tradeoff operationalises in the context of training unsupervised ML models,
+
+- Examine the effects of regularisation strength on model performance. 
