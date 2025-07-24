@@ -36,6 +36,8 @@ if (any(!installed)) {
 ```{r}
 # Load all packages
 lapply(packages, library, character.only = TRUE)
+setwd("PATH_TO_GITHUB_REPO")
+getwd()
 ```
 
 
@@ -65,7 +67,6 @@ Load the `math_student.csv` file from and remove the `G2` variable as before. Th
 ```{r}
 library(caret)
 library(tidyverse)
-?caret::createDataPartition()
 
 math_student <- read.csv("Data/math_student.csv", sep = ",", header = TRUE) %>%
 select(__)
@@ -87,7 +88,7 @@ head(math_y, 5)
 head(math_x, 5)
 ```
 
-Keep `set.seed(123)` to ensure replicability. Now, use the `createDataPartition()` function with `p` = 0.75 to create an R vector called `train_idx` which we will use to randomly split our data into a training set containing 75% of the data, and the rest in our test set. `train_idx` is a vector of integers that relate to the index of your `math_student` data. You may need to apply `as.vector()` after `createDataPartition()` to transform it to a vector. Use the argument `list = FALSE` so `train_idx` remains a vector. 
+Keep `set.seed(600)` to ensure replicability. Now, use the `createDataPartition()` function with `p` = 0.75 to create an R vector called `train_idx` which we will use to randomly split our data into a training set containing 75% of the data, and the rest in our test set. `train_idx` is a vector of integers that relate to the index of your `math_student` data. You may need to apply `as.vector()` after `createDataPartition()` to transform it to a vector. Use the argument `list = FALSE` so `train_idx` remains a vector. 
 
 ```{r}
 set.seed(123)
